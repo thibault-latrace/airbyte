@@ -38,29 +38,53 @@ def test_get_column_value():
     assert test_report.get_column_value(record, "Spend") == 1.203
 
 
-def test_get_updated_state_new_state():
+def test_get_updated_state_init_state():
+    attribution_window = pendulum.duration(days=30)
+    test_report = TestReport()
+    stream_state = {}
+    latest_record = {"AccountId": 123, "Time": "2020-01-02"}
+    new_state = test_report.get_updated_state(stream_state, latest_record)
+    assert new_state["123"]["Time"] == (pendulum.parse("2020-01-02") - attribution_window).timestamp()
+
+
+def test_get_updated_state_new_state_record_after_rollback_window_youngest_bound():
+    attribution_window = pendulum.duration(days=30)
     test_report = TestReport()
     stream_state = {"123": {"Time": pendulum.parse("2020-01-01").timestamp()}}
     latest_record = {"AccountId": 123, "Time": "2020-01-02"}
     new_state = test_report.get_updated_state(stream_state, latest_record)
-    assert new_state["123"]["Time"] == pendulum.parse("2020-01-02").timestamp()
+    assert new_state["123"]["Time"] == (pendulum.parse("2020-01-02") - attribution_window).timestamp()
 
 
-def test_get_updated_state_state_unchanged():
+def test_get_updated_state_unchanged_state_record_before_rollback_window_oldest_bound():
+    attribution_window = pendulum.duration(days=30)
     test_report = TestReport()
     stream_state = {"123": {"Time": pendulum.parse("2020-01-03").timestamp()}}
-    latest_record = {"AccountId": 123, "Time": "2020-01-02"}
+    latest_record = {
+        "AccountId": 123,
+        "Time": (pendulum.parse("2022-01-03") - (attribution_window + pendulum.duration(days=1))).to_date_string()
+    }  # won't be ingested
+    new_state = test_report.get_updated_state(copy.deepcopy(stream_state), latest_record)
+    assert stream_state == new_state
+
+
+def test_get_updated_state_unchanged_state_record_after_rollback_window_oldest_bound():
+    test_report = TestReport()
+    stream_state = {"123": {"Time": pendulum.parse("2020-01-03").timestamp()}}
+    latest_record = {"AccountId": 123, "Time": "2020-01-02"}  # will be ingested
     new_state = test_report.get_updated_state(copy.deepcopy(stream_state), latest_record)
     assert stream_state == new_state
 
 
 def test_get_updated_state_state_new_account():
+    attribution_window = pendulum.duration(days=30)
     test_report = TestReport()
     stream_state = {"123": {"Time": pendulum.parse("2020-01-03").timestamp()}}
     latest_record = {"AccountId": 234, "Time": "2020-01-02"}
     new_state = test_report.get_updated_state(stream_state, latest_record)
     assert "234" in new_state and "123" in new_state
-    assert new_state["234"]["Time"] == pendulum.parse("2020-01-02").timestamp()
+    assert new_state["234"]["Time"] == (pendulum.parse("2020-01-02") - attribution_window).timestamp()
+
 
 
 def test_get_report_record_timestamp_daily():
